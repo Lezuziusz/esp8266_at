@@ -1368,7 +1368,7 @@ at_ipDataSendNow(void)
 void ICACHE_FLASH_ATTR
 at_exeCmdCipsend(uint8_t id)
 {
-	if((serverEn) || (IPMODE == FALSE))
+	if(IPMODE == FALSE)
 	{
 		at_backError;
 		return;
