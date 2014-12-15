@@ -58,6 +58,7 @@ at_funcationType at_fun[at_cmdNum]={
   {"+CIUPDATE", 9, NULL, NULL, NULL, at_exeCmdCiupdate},
   {"+CIPING", 7, NULL, NULL, NULL, at_exeCmdCiping},
   {"+CIPAPPUP", 9, NULL, NULL, NULL, at_exeCmdCipappup},
+  {"+RODI", 5, NULL, NULL, NULL, at_exeCmdRodi},
 #ifdef ali
   {"+MPINFO", 7, NULL, NULL, at_setupCmdMpinfo, NULL}
 #endif

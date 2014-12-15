@@ -466,12 +466,13 @@ at_queryCmdCwsap(uint8_t id)
     return;
   }
   wifi_softap_get_config(&apConfig);
-  os_sprintf(temp,"%s:\"%s\",\"%s\",%d,%d\r\n",
+  os_sprintf(temp,"%s:\"%s\",\"%s\",%d,%d,%d\r\n",
              at_fun[id].at_cmdName,
              apConfig.ssid,
              apConfig.password,
              apConfig.channel,
-             apConfig.authmode);
+             apConfig.authmode,
+             apConfig.max_connection);
   uart0_sendStr(temp);
   at_backOk;
 }

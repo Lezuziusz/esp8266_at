@@ -20,6 +20,8 @@
 #include "osapi.h"
 #include "at.h"
 
+#include "at_ipCmd.h"
+
 extern uint8_t at_wifiMode;
 extern void user_esp_platform_load_param(void *param, uint16 len);
 
@@ -36,10 +38,11 @@ void user_init(void)
   }
   else
   {
-    uart_init(BIT_RATE_115200, BIT_RATE_115200);
+    uart_init(BIT_RATE_57600, BIT_RATE_115200);
   }
   at_wifiMode = wifi_get_opmode();
   os_printf("\r\nready!!!\r\n");
-  uart0_sendStr("\r\nready\r\n");
   at_init();
+  at_exeCmdRodi(0);
+  uart0_sendStr("\r\nready\r\n");
 }

@@ -26,6 +26,8 @@
 #include "driver/uart.h"
 #include<stdlib.h>
 
+#include "gpio.h"
+
 extern at_mdStateType mdState;
 extern BOOL specialAtState;
 extern at_stateType at_state;
@@ -36,6 +38,7 @@ extern uint8_t at_dataLine[];///
 //extern UartDevice UartDev;
 extern uint8_t at_wifiMode;
 extern int8_t at_dataStrCpy(void *pDest, const void *pSrc, int8_t maxLen);
+extern BOOL echoFlag;
 
 uint16_t at_sendLen; //now is 256
 uint16_t at_tranLen; //now is 256
@@ -45,6 +48,7 @@ uint8_t ipDataSendFlag = 0;
 
 static BOOL at_ipMux = FALSE;
 static BOOL disAllFlag = FALSE;
+static BOOL rodiMode = FALSE;
 
 static at_linkConType pLink[at_linkMax];
 static uint8_t sendingID;
@@ -52,7 +56,7 @@ static BOOL serverEn = FALSE;
 static at_linkNum = 0;
 
 //static uint8_t repeat_time = 0;
-static uint16_t server_timeover = 180;
+static uint16_t server_timeover = 3600;
 static struct espconn *pTcpServer;
 static struct espconn *pUdpServer;
 
@@ -280,6 +284,13 @@ at_tcpclient_recv(void *arg, char *pdata, unsigned short len)
     os_sprintf(temp, "\r\n+IPD,%d:", len);
     uart0_sendStr(temp);
     uart0_tx_buffer(pdata, len);
+  }
+  else if(rodiMode && (len == 10) && (os_memcmp(pdata, "bootloader", 10) == 0)) //UartDev.rcv_buff.pRcvMsgBuff
+  {
+    gpio_output_set(0, BIT2, BIT2, 0); // Reset arduino
+    os_delay_us(10);
+    gpio_output_set(BIT2, 0, BIT2, 0);
+    return;
   }
   else
   {
@@ -1321,15 +1332,21 @@ at_ipDataTransparent(void *arg)
 	{
 //	  ETS_UART_INTR_DISABLE(); //
 		specialAtState = TRUE;
-    at_state = at_statIdle;
+        at_state = at_statIdle;
+        if(rodiMode){
+          uart0_sendStr("\r\nATMODE\r\n");
+        }
 //		ETS_UART_INTR_ENABLE();
 //		IPMODE = FALSE;
 		return;
 	}
 	else if(at_tranLen)
 	{
+    if(pLink[0].linkEn == TRUE)
+    {
 	  ETS_UART_INTR_DISABLE(); //
     espconn_sent(pLink[0].pCon, at_dataLine, at_tranLen); //UartDev.rcv_buff.pRcvMsgBuff ////
+    }
     ipDataSendFlag = 1;
 //    pDataLine = UartDev.rcv_buff.pRcvMsgBuff;
     pDataLine = at_dataLine;
@@ -1373,7 +1390,7 @@ at_exeCmdCipsend(uint8_t id)
 		at_backError;
 		return;
 	}
-	if(pLink[0].linkEn == FALSE)
+	if(pLink[0].linkEn == FALSE && !rodiMode)
   {
 	  at_backError;
 	  return;
@@ -1386,7 +1403,9 @@ at_exeCmdCipsend(uint8_t id)
   os_timer_setfn(&at_delayCheck, (os_timer_func_t *)at_ipDataTransparent, NULL);
   os_timer_arm(&at_delayCheck, 20, 0);
 //  IPMODE = TRUE;
-  uart0_sendStr("\r\n>");
+  if(!rodiMode){
+    uart0_sendStr("\r\n>");
+  }
 }
 
 /**
@@ -1481,7 +1500,9 @@ at_tcpserver_discon_cb(void *arg)
   }
   else
   {
-    uart0_sendStr("CLOSED\r\n");
+    if(!rodiMode){
+      uart0_sendStr("CLOSED\r\n");
+    }
   }
   if(linkTemp->teToff == TRUE)
   {
@@ -1498,8 +1519,14 @@ at_tcpserver_discon_cb(void *arg)
     disAllFlag = false;
   }
   ETS_UART_INTR_ENABLE();
-  specialAtState = true;
-  at_state = at_statIdle;
+
+  if(specialAtState == TRUE){
+    specialAtState = true;
+    at_state = at_statIdle;
+  } else{
+    // GSC: Added for full transparent mode
+    specialAtState = FALSE;
+  }
 }
 
 /**
@@ -1537,7 +1564,11 @@ at_tcpserver_recon_cb(void *arg, sint8 errType)
   }
   else
   {
-    uart0_sendStr("CONNECT\r\n");
+    if(!rodiMode){
+      uart0_sendStr("CONNECT\r\n");
+    }else{
+      at_exeCmdCipsend(0);
+    }
   }
 
 //    uart0_sendStr("Unlink\r\n");
@@ -1599,7 +1630,11 @@ at_tcpserver_listen(void *arg)
   }
   else
   {
-    uart0_sendStr("CONNECT\r\n");
+    if(!rodiMode){
+      uart0_sendStr("CONNECT\r\n");
+    }else{
+      at_exeCmdCipsend(i);
+    }
   }
 //  uart0_sendStr("Link\r\n");
 }
@@ -2277,6 +2312,46 @@ void ICACHE_FLASH_ATTR
 at_exeCmdCipappup(uint8_t id)
 {
 	
+}
+
+/**
+  * @brief  Setup RoDI stuff
+  * @retval None
+  */
+void ICACHE_FLASH_ATTR
+at_exeCmdRodi(uint8_t id)
+{
+  // Set RoDI mode
+  rodiMode = TRUE;
+
+  // ATE=0
+  echoFlag = FALSE;
+
+  // AT+CIPMODE=1
+  IPMODE = 1;
+
+  // AT+CIPMUX=1
+  at_ipMux = TRUE;
+
+  // AT+CIPSERVER=1,1234
+  char param[] = "=1,1234";
+  at_setupCmdCipserver(0, param);
+
+  // AT+CIPMUX=0
+  at_ipMux = FALSE;
+
+  // GSC: Added for full transparent mode
+  // This prevent entering AT mode unless +++ is received
+  at_exeCmdCipsend(0);
+
+  // Initialize the GPIO subsystem.
+  gpio_init();
+
+  // Set GPIO2 to output mode
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_GPIO2);
+
+  // Set GPIO2 high
+  gpio_output_set(BIT2, 0, BIT2, 0);
 }
 
 /**
